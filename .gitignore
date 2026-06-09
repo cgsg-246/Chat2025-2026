@@ -1,0 +1,32 @@
+# Секретные ключи и настройки среды
+.env
+.env.local
+.env.*.local
+
+# Зависимости и пакеты Node.js (весят сотни мегабайт, качаются через npm install)
+node_modules/
+jspm_packages/
+web_modules/
+
+# Логи ошибок и отладки
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Временные файлы сборщика Rollup и кэш компиляции
+.rollup.cache/
+.eslintcache
+.parcel-cache
+.cache/
+pids
+*.pid
+*.seed
+*.pid.lock
+
+.pytest_cache/
+
+# Системные файлы операционных систем (мусор)
+.DS_Store
+Thumbs.db
+Desktop.ini
