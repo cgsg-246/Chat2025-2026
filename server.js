@@ -81,11 +81,11 @@ app.post('/api/message', (req, res) => {
 const distPath = path.join(__dirname, 'dist');
 if (fs.existsSync(distPath)) {
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+
+    app.get('/*', (req, res) => {
         res.sendFile(path.join(distPath, 'index.html'));
     });
 } else {
-    app.get('*', (req, res) => res.send('Фронтенд собирается или папка dist отсутствует в Git. Бэкенд работает!'));
+    app.get('/*', (req, res) => res.send('Бэкенд работает, папка dist не найдена!'));
 }
-
 app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
