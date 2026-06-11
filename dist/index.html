@@ -5,12 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JS Chat</title>
+
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self';">
+
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
+
     <div id="auth-block" class="box">
-        <h2>log in mesenger</h2>
+        <h2>log in messenger</h2>
         <input type="text" id="username" placeholder="Имя пользователя" autocomplete="off">
         <input type="password" id="password" placeholder="Пароль">
         <button id="login-btn">Войти</button>
@@ -19,13 +24,14 @@
     </div>
 
     <div id="chat-block" class="box" style="display: none;">
-        <h2>Mesenger </h2>
+        <h2>Messenger</h2>
         <div id="messages"></div>
         <div class="input-row">
             <input type="text" id="msg-input" placeholder="Введите сообщение..." autocomplete="off">
             <button id="send-btn">➔</button>
         </div>
     </div>
+
     <script src="main.js"></script>
 </body>
 

@@ -1,45 +1,19 @@
-const http = require("http");
 const express = require("express");
-const logger = require("morgan");
-const { Server } = require("socket.io");
-const cookieParser = require("cookie-parser");
 const crypto = require("crypto");
 const fs = require("fs");
+const path = require("path");
+const cors = require("cors");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-const RENDER_APP_NAME = 'my-super-chat'; 
-const SELF_PING_URL = `https://${RENDER_APP_NAME}://`;
+const PORT = process.env.PORT || 8080;
 
-const FILE = './users.data';
-const MESSAGES_FILE = './messages.data';
+const FILE = path.join(__dirname, 'users.data');
+const MESSAGES_FILE = path.join(__dirname, 'messages.data');
 
-function myMiddleware(req, res, next) {
-    console.log(`Request for ${req.url}`);
-    next();
-}
+app.use(cors());
 
-app.use(myMiddleware);
-app.use(logger("dev"));
-app.use(cookieParser());
-app.use(express.static("dist"));
-
-app.get('/ping', (req, res) => {
-    res.send('pong');
-});
-
-app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).send("Something broke!");
-});
-
-const server = http.createServer(app);
-
-const io = new Server(server, {
-    path: "/socket.io",
-    cors: { origin: "*" }
-});
+app.use(express.json());
 
 let users = {};
 try { users = fs.existsSync(FILE) ? JSON.parse(fs.readFileSync(FILE, 'utf8')) : {}; } catch { users = {}; }
@@ -49,50 +23,48 @@ try { messagesHistory = fs.existsSync(MESSAGES_FILE) ? JSON.parse(fs.readFileSyn
 
 const getHash = (pass) => crypto.createHash('sha256').update(pass).digest('hex');
 
-io.on("connection", (socket) => {
-    console.log("Connection opened via Socket.io");
+app.get('/ping', (req, res) => res.send('pong'));
 
-    socket.on("login", (data) => {
-        const { username, password } = data;
-
-        if (users[username]) {
-            if (users[username] === getHash(password)) {
-                socket.emit('login_success', { username });
-                socket.emit('chat_history', messagesHistory);
-                io.emit('sys_notification', { text: `Пользователь ${username} вошел в чат` });
-            } else {
-                socket.emit('login_error', { message: 'Неверный пароль!' });
-            }
-        } else {
-            socket.emit('user_not_found', { message: 'Пользователь не найден. Создать?', username });
+app.post('/api/login', (req, res) => {
+    try {
+        const { username, password } = req.body;
+        if (!users[username]) {
+            return res.status(404).json({ message: 'Пользователь не найден. Создать?' });
         }
-    });
-
-    socket.on("register", (data) => {
-        users[data.username] = getHash(data.password);
-        try { fs.writeFileSync(FILE, JSON.stringify(users, null, 2)); } catch (e) { console.error(e); }
-        socket.emit('login_success', { username: data.username });
-        socket.emit('chat_history', messagesHistory);
-        io.emit('sys_notification', { text: `Новый пользователь ${data.username} зарегистрировался и вошел в чат 🎉` });
-    });
-
-    socket.on("chat_message", (data) => {
-        const msgObject = { type: 'user', user: data.user, text: data.text };
-        messagesHistory.push(msgObject);
-        if (messagesHistory.length > 100) messagesHistory.shift();
-        try { fs.writeFileSync(MESSAGES_FILE, JSON.stringify(messagesHistory, null, 2)); } catch (e) { console.error(e); }
-
-        io.emit('chat_message', data);
-    });
+        if (users[username] === getHash(password)) {
+            return res.status(200).json({ username });
+        }
+        return res.status(401).json({ message: 'Неверный пароль!' });
+    } catch (error) {
+        console.error("Ошибка в /api/login:", error);
+        res.status(500).json({ message: "Ошибка сервера" });
+    }
 });
 
-setInterval(async () => {
-    try {
-        const response = await fetch(SELF_PING_URL);
-        console.log(`[Self-Ping] Status: ${response.status}`);
-    } catch (error) {
-        console.error('[Self-Ping] Error:', error.message);
-    }
-}, 10 * 60 * 1000);
+app.post('/api/register', (req, res) => {
+    const { username, password } = req.body;
+    users[username] = getHash(password);
+    try { fs.writeFileSync(FILE, JSON.stringify(users, null, 2)); } catch (e) { console.error(e); }
+    res.status(201).json({ username });
+});
 
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.get('/api/messages', (req, res) => {
+    res.json(messagesHistory);
+});
+
+app.post('/api/message', (req, res) => {
+    const { user, text } = req.body;
+    const msgObject = { user, text };
+    messagesHistory.push(msgObject);
+    if (messagesHistory.length > 100) messagesHistory.shift(); // Храним только последние 100 сообщений
+    try { fs.writeFileSync(MESSAGES_FILE, JSON.stringify(messagesHistory, null, 2)); } catch (e) { console.error(e); }
+    res.status(201).json(msgObject);
+});
+
+app.use(express.static(path.join(__dirname, 'dist')));
+
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

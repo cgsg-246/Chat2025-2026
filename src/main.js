@@ -1,97 +1,124 @@
-import { io } from 'socket.io-client';
-
-const socket = io(`http://${location.host}`);
+const API_URL = window.location.origin;
 
 let currentUser = "";
 let tempCredentials = null;
+let pollingTimer = null;
 
 const el = (id) => document.getElementById(id);
 
-el('login-btn').addEventListener('click', () => {
+el('login-btn').addEventListener('click', async () => {
     const username = el('username').value.trim();
     const password = el('password').value;
     if (!username || !password) return;
 
-    el('error-msg').textContent = "";
+    el('error-msg').textContent = "Вход...";
     el('reg-btn').style.display = "none";
-
     tempCredentials = { username, password };
 
-    socket.emit('login', { username, password });
+    try {
+        const res = await fetch(`${API_URL}/api/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+
+        if (res.status === 200) {
+            currentUser = data.username;
+            el('auth-block').style.display = 'none';
+            el('chat-block').style.display = 'block';
+            startChatPolling();
+        } else if (res.status === 404) {
+            el('error-msg').textContent = data.message;
+            el('reg-btn').style.display = "block";
+        } else {
+            el('error-msg').textContent = data.message;
+        }
+    } catch (err) {
+        el('error-msg').textContent = "Сервер просыпается, подождите 1 минуту...";
+    }
 });
 
-el('reg-btn').addEventListener('click', () => {
-    if (tempCredentials) {
-        socket.emit('register', {
-            username: tempCredentials.username,
-            password: tempCredentials.password
+el('reg-btn').addEventListener('click', async () => {
+    if (!tempCredentials) return;
+    try {
+        const res = await fetch(`${API_URL}/api/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(tempCredentials)
         });
+        const data = await res.json();
+
+        if (res.ok) {
+            currentUser = data.username;
+            el('auth-block').style.display = 'none';
+            el('chat-block').style.display = 'block';
+            startChatPolling();
+        }
+    } catch (err) {
+        el('error-msg').textContent = "Ошибка регистрации.";
     }
 });
 
 el('send-btn').addEventListener('click', sendMessage);
 el('msg-input').addEventListener('keypress', (e) => e.key === 'Enter' && sendMessage());
 
-function sendMessage() {
+async function sendMessage() {
     const input = el('msg-input');
-    if (!input.value.trim()) return;
-
-    socket.emit('chat_message', { user: currentUser, text: input.value });
+    const text = input.value.trim();
+    if (!text) return;
     input.value = "";
+
+    try {
+        await fetch(`${API_URL}/api/message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user: currentUser, text })
+        });
+        await loadMessages();
+    } catch (err) {
+        console.error("Не удалось отправить сообщение");
+    }
 }
 
-function appendUserMessage(user, text) {
-    const msgDiv = document.createElement('div');
-    const nameSpan = document.createElement('b');
-    nameSpan.textContent = `${user}: `;
-    const textSpan = document.createElement('span');
-    textSpan.textContent = text;
-    msgDiv.appendChild(nameSpan);
-    msgDiv.appendChild(textSpan);
-    el('messages').appendChild(msgDiv);
-}
+async function loadMessages() {
+    try {
+        const res = await fetch(`${API_URL}/api/messages`);
+        const history = await res.json();
+        const messagesDiv = el('messages');
 
-socket.on('login_success', (data) => {
-    currentUser = data.username;
-    el('auth-block').style.display = 'none';
-    el('chat-block').style.display = 'block';
-});
+        if (!messagesDiv) return;
 
-socket.on('login_error', (data) => {
-    el('error-msg').textContent = data.message;
-    el('auth-block').style.display = 'block';
-    el('chat-block').style.display = 'none';
-});
+        const isAtBottom = messagesDiv.clientHeight === 0 ||
+            (messagesDiv.scrollHeight - messagesDiv.clientHeight <= messagesDiv.scrollTop + 50);
 
-socket.on('user_not_found', (data) => {
-    el('error-msg').textContent = data.message;
-    el('reg-btn').style.display = "block";
-});
+        messagesDiv.innerHTML = "";
+        history.forEach(msg => {
+            const msgDiv = document.createElement('div');
+            const nameSpan = document.createElement('b');
+            nameSpan.textContent = `${msg.user}: `;
+            const textSpan = document.createElement('span');
+            textSpan.textContent = msg.text;
+            msgDiv.appendChild(nameSpan);
+            msgDiv.appendChild(textSpan);
+            messagesDiv.appendChild(msgDiv);
+        });
 
-socket.on('chat_history', (history) => {
-    el('messages').innerHTML = "";
-    history.forEach(msg => {
-        if (msg.type === 'user') {
-            appendUserMessage(msg.user, msg.text);
+        if (isAtBottom && messagesDiv.clientHeight > 0) {
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
-    });
-    el('messages').scrollTop = el('messages').scrollHeight;
-});
+    } catch (err) {
+        console.error("Ошибка обновления чата", err);
+    }
+}
 
-socket.on('chat_message', (data) => {
-    appendUserMessage(data.user, data.text);
-    el('messages').scrollTop = el('messages').scrollHeight;
-});
+async function startChatPolling() {
+    if (pollingTimer) clearTimeout(pollingTimer);
+    await loadMessages();
 
-socket.on('sys_notification', (data) => {
-    const msgDiv = document.createElement('div');
-    msgDiv.style.textAlign = 'center';
-    msgDiv.style.color = '#a87687';
-    msgDiv.style.fontStyle = 'italic';
-    msgDiv.style.opacity = '0.7';
-    msgDiv.style.fontSize = '13px';
-    msgDiv.style.margin = '10px 0';
-    msgDiv.textContent = data.text;
-    el('messages').appendChild(msgDiv);
-    el('messages').scrollTop = el('messages').scrollHeight;
-});
+    async function poll() {
+        await loadMessages();
+        pollingTimer = setTimeout(poll, 3000);
+    }
+    pollingTimer = setTimeout(poll, 3000);
+}
