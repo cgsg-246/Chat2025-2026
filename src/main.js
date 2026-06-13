@@ -1,67 +1,82 @@
 const API_URL = window.location.origin;
 
-let currentUser = "";
+let currentUser = localStorage.getItem("username") || "";
+let token = localStorage.getItem("token") || "";
 let tempCredentials = null;
 let pollingTimer = null;
 
 const el = (id) => document.getElementById(id);
 
-el('login-btn').addEventListener('click', async () => {
-    const username = el('username').value.trim();
-    const password = el('password').value;
-    if (!username || !password) return;
+if (token && currentUser) {
+    if (el('auth-block')) el('auth-block').style.display = 'none';
+    if (el('chat-block')) el('chat-block').style.display = 'block';
+    startChatPolling();
+}
 
-    el('error-msg').textContent = "Вход...";
-    el('reg-btn').style.display = "none";
-    tempCredentials = { username, password };
+if (el('login-btn')) {
+    el('login-btn').addEventListener('click', async () => {
+        const username = el('username').value.trim();
+        const password = el('password').value;
+        if (!username || !password) return;
 
-    try {
-        const res = await fetch(`${API_URL}/api/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
+        el('error-msg').textContent = "Вход...";
+        el('reg-btn').style.display = "none";
+        tempCredentials = { username, password };
 
-        if (res.status === 200) {
-            currentUser = data.username;
-            el('auth-block').style.display = 'none';
-            el('chat-block').style.display = 'block';
-            startChatPolling();
-        } else if (res.status === 404) {
-            el('error-msg').textContent = data.message;
-            el('reg-btn').style.display = "block";
-        } else {
-            el('error-msg').textContent = data.message;
+        try {
+            const res = await fetch(`${API_URL}/api/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+
+            if (res.status === 200) {
+                currentUser = data.username;
+                token = data.token;
+                localStorage.setItem("username", currentUser);
+                localStorage.setItem("token", token);
+
+                el('auth-block').style.display = 'none';
+                el('chat-block').style.display = 'block';
+                startChatPolling();
+            } else if (res.status === 404) {
+                el('error-msg').textContent = data.message;
+                el('reg-btn').style.display = "block";
+            } else {
+                el('error-msg').textContent = data.message;
+            }
+        } catch (err) {
+            el('error-msg').textContent = "Сервер просыпается, подождите 1 минуту...";
         }
-    } catch (err) {
-        el('error-msg').textContent = "Сервер просыпается, подождите 1 минуту...";
-    }
-});
+    });
+}
 
-el('reg-btn').addEventListener('click', async () => {
-    if (!tempCredentials) return;
-    try {
-        const res = await fetch(`${API_URL}/api/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(tempCredentials)
-        });
-        const data = await res.json();
+if (el('reg-btn')) {
+    el('reg-btn').addEventListener('click', async () => {
+        if (!tempCredentials) return;
+        try {
+            const res = await fetch(`${API_URL}/api/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(tempCredentials)
+            });
+            const data = await res.json();
 
-        if (res.ok) {
-            currentUser = data.username;
-            el('auth-block').style.display = 'none';
-            el('chat-block').style.display = 'block';
-            startChatPolling();
+            if (res.ok) {
+                el('error-msg').textContent = "Успешно! Нажмите 'Войти'.";
+                el('reg-btn').style.display = "none";
+            } else {
+                el('error-msg').textContent = data.message || "Ошибка регистрации";
+            }
+        } catch (err) {
+            el('error-msg').textContent = "Ошибка регистрации.";
         }
-    } catch (err) {
-        el('error-msg').textContent = "Ошибка регистрации.";
-    }
-});
+    });
+}
 
-el('send-btn').addEventListener('click', sendMessage);
-el('msg-input').addEventListener('keypress', (e) => e.key === 'Enter' && sendMessage());
+if (el('send-btn')) el('send-btn').addEventListener('click', sendMessage);
+if (el('msg-input')) el('msg-input').addEventListener('keypress', (e) => e.key === 'Enter' && sendMessage());
 
 async function sendMessage() {
     const input = el('msg-input');
@@ -70,11 +85,22 @@ async function sendMessage() {
     input.value = "";
 
     try {
-        await fetch(`${API_URL}/api/message`, {
+        const res = await fetch(`${API_URL}/api/message`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user: currentUser, text })
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ text })
         });
+
+        if (res.status === 401 || res.status === 403) {
+            alert("Сессия истекла. Войдите заново.");
+            localStorage.clear();
+            location.reload();
+            return;
+        }
+
         await loadMessages();
     } catch (err) {
         console.error("Не удалось отправить сообщение");
